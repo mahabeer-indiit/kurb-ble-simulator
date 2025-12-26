@@ -292,7 +292,7 @@ class WindowsBLEPairingAdvertiser:
             # -------- LOCK COMMAND --------
             if u == uuid.UUID(ble_constants.CHAR_LOCK_COMMAND):
                 asyncio.run_coroutine_threadsafe(
-                    self._handle_lock_command(data), self._loop
+                    self._handle_unlock_command(data), self._loop
                 )
 
             # -------- SCHEDULE (streamed) --------
@@ -323,10 +323,22 @@ class WindowsBLEPairingAdvertiser:
     # Logic handlers
     # -----------------------------------------------------------------
 
-    async def _handle_lock_command(self, data: bytes):
+    async def _handle_unlock_command(self, data: bytes):
         """Handle lock command write."""
-        log.info("[Logic] Processing Lock Command")
-        self.sim.attempt_unlock()
+        log.info("[WRAPPER] Processing Unlock Command")
+
+        if(self.sim.remaining_unlocks<=0):
+            await self._notify(
+                ble_constants.CHAR_EVENT,
+                ble_constants.EV_GENERIC_ERROR
+            )
+        elif self.sim.lock_state==0:
+            await self._notify(
+                ble_constants.CHAR_EVENT,
+                ble_constants.EV_GENERIC_ERROR
+            )
+        else :    
+            self.sim.attempt_unlock()
 
     async def _handle_schedule_stream(self, chunk: bytes):
         """
@@ -400,10 +412,6 @@ class WindowsBLEPairingAdvertiser:
                     max_unlocks=dl.get("max_unlocks", 3),
                     reset_time_local=dl.get("reset_time_local", "00:00"),
                 )
-                await self._notify(
-                    ble_constants.CHAR_EVENT,
-                    ble_constants.EV_SCHEDULE_UPDATED
-                )
 
             elif mode == "time_window":
                 windows = schedule.get("windows", [])
@@ -412,10 +420,6 @@ class WindowsBLEPairingAdvertiser:
                     self.sim.set_time_window_schedule(
                         w.get("start", 0),
                         w.get("end", 0),
-                    )
-                    await self._notify(
-                        ble_constants.CHAR_EVENT,
-                        ble_constants.EV_SCHEDULE_UPDATED
                     )
 
             else:
@@ -497,7 +501,7 @@ class WindowsBLEPairingAdvertiser:
                     if not self.is_connected():
                         log.info("No connected clients. Skipping schedule state update.")
                         continue 
-                    await self._notify(ble_constants.CHAR_SCHEDULE,json.dumps(self.sim.schedule_state))
+                    await self._notify(ble_constants.CHAR_EVENT,ble_constants.EV_SCHEDULE_UPDATED)
 
         except asyncio.CancelledError:
             pass
