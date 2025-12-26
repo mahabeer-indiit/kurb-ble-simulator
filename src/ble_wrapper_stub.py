@@ -5,6 +5,8 @@ import sys
 import os
 import threading
 import json
+import time
+from datetime import datetime, timedelta
 from typing import Optional
 
 # Ensure we can import ble_constants
@@ -58,6 +60,45 @@ class WindowsBLEPairingAdvertiser:
         self._schedule_expected_len: Optional[int] = None
         self._schedule_buf: bytes = b""
 
+    def _calculate_next_unlock_time(self) -> int:
+        """
+        Calculate the next unlock time based on the current schedule.
+        
+        Returns:
+            int: 4-byte UNIX timestamp (UTC seconds), or 0 if no upcoming unlock window
+        """
+        if not self.sim.schedule:
+            return 0
+        
+        mode = self.sim.schedule.get("mode")
+        now_ts = int(time.time())
+        
+        if mode == "daily_limit":
+            if self.sim.remaining_unlocks is None or self.sim.remaining_unlocks <= 0:
+                # No remaining unlocks
+                return int(0)
+            else:
+                # Remaining unlocks available -
+                return int(self.sim.remaining_unlocks)
+        
+        elif mode == "time_window":
+            # For time_window mode: return window start if window is available and not used
+            windows = self.sim.schedule.get("windows", [])
+            if not windows:
+                return 0
+            
+            upcoming_window =None;
+            for w in windows:
+                if  now_ts <= w["start"]:
+                    upcoming_window = w
+                    break
+            
+            if upcoming_window:
+                return int(upcoming_window["start"])
+            else:
+                return 0
+        # Unknown mode
+        return 0
         
     async def start(self):
         log.info("Starting Windows BLE Simulator")
@@ -232,7 +273,8 @@ class WindowsBLEPairingAdvertiser:
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_PROTOCOL):
                 writer.write_string("PROTO-1.0.0")
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_NEXT_UNLOCK):
-                writer.write_uint32(self.sim.remaining_unlocks) # Timestamp or similar
+                next_unlock_ts = self._calculate_next_unlock_time()
+                writer.write_uint32(next_unlock_ts)
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_SCHEDULE):
                 try:
                     schedule_json = json.dumps(self.sim.schedule) if self.sim.schedule else "{}"
