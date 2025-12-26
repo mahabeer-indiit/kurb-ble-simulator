@@ -18,7 +18,6 @@ except ImportError:
     # Fallback if running from root
     from src import ble_constants
 
-from winsdk.windows.devices.bluetooth import BluetoothLEDevice
 from winsdk.windows.devices.bluetooth.genericattributeprofile import (
     GattServiceProvider,
     GattServiceProviderAdvertisingParameters,
@@ -161,13 +160,6 @@ class WindowsBLEPairingAdvertiser:
         self.chars[ble_constants.CHAR_PROTOCOL_VERSION].add_read_requested(self._on_read_generic)
         log.info(f"Created Protocol Version Char: {ble_constants.CHAR_PROTOCOL_VERSION}")
 
-        # 11. Model (Read)
-        self.chars[ble_constants.CHAR_MODEL] = await create_char(
-            ble_constants.CHAR_MODEL,
-            GattCharacteristicProperties.READ
-        )
-        self.chars[ble_constants.CHAR_MODEL].add_read_requested(self._on_read_generic)
-        log.info(f"Created Model Char: {ble_constants.CHAR_MODEL}")
 
         # 12. Protocol (Read) - Assuming this is different from Version? Or maybe Type?
         self.chars[ble_constants.CHAR_PROTOCOL] = await create_char(
@@ -237,8 +229,6 @@ class WindowsBLEPairingAdvertiser:
                 writer.write_byte(1)
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_FIRMWARE):
                 writer.write_string("FIRMWARE-1.0.0")
-            elif sender.uuid == uuid.UUID(ble_constants.CHAR_MODEL):
-                writer.write_string("Kurb Simulator")
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_PROTOCOL):
                 writer.write_string("PROTO-1.0.0")
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_NEXT_UNLOCK):
@@ -578,14 +568,14 @@ class WindowsBLEPairingAdvertiser:
         if cmd.startswith("e"):
             try:
                 num = int(cmd[1:])
+
                 mapping = {
                     1: ble_constants.EV_LOCKED,
                     2: ble_constants.EV_UNLOCKED,
-                    3: ble_constants.EV_OPEN_TOO_LONG,
-                    4: ble_constants.EV_BATTERY_LOW,
-                    5: ble_constants.EV_BATTERY_CRITICAL,
-                    6: ble_constants.EV_SCHEDULE_UPDATED,
-                    7: ble_constants.EV_GENERIC_ERROR,
+                    4: ble_constants.EV_OPEN_TOO_LONG,
+                    5: ble_constants.EV_BATTERY_LOW,
+                    6: ble_constants.EV_BATTERY_CRITICAL,
+                    7: ble_constants.EV_SCHEDULE_UPDATED,
                     8: ble_constants.EV_GENERIC_ERROR,
                     9: ble_constants.EV_EMERGENCY_UNLOCK,
                 }
