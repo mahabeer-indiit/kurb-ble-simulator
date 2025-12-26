@@ -55,6 +55,9 @@ class WindowsBLEPairingAdvertiser:
         self._open_too_long_task: Optional[asyncio.Task] = None
         self._subscribed_clients = set()
         self._last_schedule_state = None
+        # Schedule stream state for reassembling chunks
+        self._schedule_expected_len: Optional[int] = None
+        self._schedule_buf: bytes = b""
 
         
     async def start(self):
@@ -282,37 +285,26 @@ class WindowsBLEPairingAdvertiser:
                 data = b''
 
             u = sender.uuid
+            u_str = str(u).lower()
+
+            log.info(f"[BLE Write] {u_str}: {data.hex()}")
 
             # -------- LOCK COMMAND --------
             if u == uuid.UUID(ble_constants.CHAR_LOCK_COMMAND):
-                self.sim.attempt_unlock()
+                asyncio.run_coroutine_threadsafe(
+                    self._handle_lock_command(data), self._loop
+                )
 
-            # -------- SCHEDULE (length-prefixed JSON) --------
+            # -------- SCHEDULE (streamed) --------
             elif u == uuid.UUID(ble_constants.CHAR_SCHEDULE):
-                if len(data) < 2:
-                    raise ValueError("Invalid schedule payload")
+                asyncio.run_coroutine_threadsafe(
+                    self._handle_schedule_stream(data), self._loop
+                )
 
-                json_len = data[0] | (data[1] << 8)
-                json_bytes = data[2:2 + json_len]
-                obj = json.loads(json_bytes.decode("utf-8"))
-
-                mode = obj.get("mode")
-                if mode == "daily_limit":
-                    dl = obj.get("daily_limit", {})
-                    self.sim.set_daily_limit_schedule(
-                        int(dl.get("max_unlocks", 3)),
-                        dl.get("reset_time_local", "00:00")
-                    )
-                elif mode == "time_window":
-                    w = obj.get("windows", [{}])[0]
-                    self.sim.set_time_window_schedule(
-                        int(w.get("start", 0)),
-                        int(w.get("end", 0))
-                    )
-
-                await self._notify(
-                    ble_constants.CHAR_EVENT,
-                    ble_constants.EV_SCHEDULE_UPDATED
+            # -------- TIMESYNC --------
+            elif u == uuid.UUID(ble_constants.CHAR_TIMESYNC):
+                asyncio.run_coroutine_threadsafe(
+                    self._handle_timesync(data), self._loop
                 )
 
             if req.option == GattWriteOption.WRITE_WITH_RESPONSE:
@@ -326,6 +318,133 @@ class WindowsBLEPairingAdvertiser:
             )
         finally:
             deferral.complete()
+
+    # -----------------------------------------------------------------
+    # Logic handlers
+    # -----------------------------------------------------------------
+
+    async def _handle_lock_command(self, data: bytes):
+        """Handle lock command write."""
+        log.info("[Logic] Processing Lock Command")
+        self.sim.attempt_unlock()
+
+    async def _handle_schedule_stream(self, chunk: bytes):
+        """
+        Reassembles streamed schedule writes.
+
+        Protocol:
+        - First 2 bytes (little-endian) = payload length
+        - Remaining bytes = payload (opaque to this function)
+        """
+        # ---------- First chunk: read length ----------
+        if self._schedule_expected_len is None:
+            if len(chunk) < 2:
+                log.warning("[ScheduleStream] Chunk < 2 bytes, waiting for length")
+                return
+
+            self._schedule_expected_len = int.from_bytes(chunk[:2], "little")
+            self._schedule_buf = b""
+
+            # Append any payload bytes present in this chunk
+            remainder = chunk[2:]
+            if remainder:
+                self._schedule_buf += remainder
+
+            log.info(
+                f"[ScheduleStream] Started, expecting "
+                f"{self._schedule_expected_len} bytes"
+            )
+
+        # ---------- Continuation chunks ----------
+        else:
+            self._schedule_buf += chunk
+
+        log.debug(
+            f"[ScheduleStream] Progress: "
+            f"{len(self._schedule_buf)}/{self._schedule_expected_len}"
+        )
+
+        # ---------- Completion ----------
+        if (
+            self._schedule_expected_len is not None
+            and len(self._schedule_buf) >= self._schedule_expected_len
+        ):
+            payload = self._schedule_buf[: self._schedule_expected_len]
+
+            # Reset stream state FIRST
+            self._schedule_buf = b""
+            self._schedule_expected_len = None
+
+            log.info("[ScheduleStream] Payload fully received")
+
+            # Hand off raw payload for further processing
+            await self._handle_schedule(payload)
+
+    async def _handle_schedule(self, payload: bytes):
+        """
+        Handles a fully reassembled schedule payload.
+
+        payload = raw JSON bytes (NO length header)
+        """
+        log.info("[Logic] Processing Schedule update")
+
+        try:
+            json_str = payload.decode("utf-8")
+            schedule = json.loads(json_str)
+
+            mode = schedule.get("mode")
+
+            if mode == "daily_limit":
+                dl = schedule.get("daily_limit", {})
+                self.sim.set_daily_limit_schedule(
+                    max_unlocks=dl.get("max_unlocks", 3),
+                    reset_time_local=dl.get("reset_time_local", "00:00"),
+                )
+                await self._notify(
+                    ble_constants.CHAR_EVENT,
+                    ble_constants.EV_SCHEDULE_UPDATED
+                )
+
+            elif mode == "time_window":
+                windows = schedule.get("windows", [])
+                if windows:
+                    w = windows[0]
+                    self.sim.set_time_window_schedule(
+                        w.get("start", 0),
+                        w.get("end", 0),
+                    )
+                    await self._notify(
+                        ble_constants.CHAR_EVENT,
+                        ble_constants.EV_SCHEDULE_UPDATED
+                    )
+
+            else:
+                log.warning(f"[Logic] Unknown schedule mode: {mode}")
+
+        except json.JSONDecodeError as e:
+            log.error(f"[Logic] Invalid JSON schedule: {e}")
+            await self._notify(
+                ble_constants.CHAR_EVENT,
+                ble_constants.EV_GENERIC_ERROR
+            )
+
+        except Exception as e:
+            log.error(f"[Logic] Schedule handling failed: {e}")
+            await self._notify(
+                ble_constants.CHAR_EVENT,
+                ble_constants.EV_GENERIC_ERROR
+            )
+
+    async def _handle_timesync(self, data: bytes):
+        """Handle timesync write."""
+        if len(data) >= 4:
+            # Read uint32 timestamp (little-endian)
+            timestamp = int.from_bytes(data[:4], "little")
+            log.info(f"[Logic] TimeSync received: {timestamp}")
+            # In a real device, this would sync the device clock
+            # For simulator, we just acknowledge it
+        else:
+            log.warning(f"[Logic] TimeSync payload too short: {len(data)} bytes")
 
     async def stop(self):
         if self.provider:
