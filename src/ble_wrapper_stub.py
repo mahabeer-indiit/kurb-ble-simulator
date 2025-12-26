@@ -139,7 +139,7 @@ class WindowsBLEPairingAdvertiser:
         # 8. Next Unlock (Read)
         self.chars[ble_constants.CHAR_NEXT_UNLOCK] = await create_char(
             ble_constants.CHAR_NEXT_UNLOCK,
-            GattCharacteristicProperties.READ
+             GattCharacteristicProperties.READ | GattCharacteristicProperties.NOTIFY
         )
         self.chars[ble_constants.CHAR_NEXT_UNLOCK].add_read_requested(self._on_read_generic)
         log.info(f"Created Next Unlock Char: {ble_constants.CHAR_NEXT_UNLOCK}")
@@ -232,7 +232,7 @@ class WindowsBLEPairingAdvertiser:
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_PROTOCOL):
                 writer.write_string("PROTO-1.0.0")
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_NEXT_UNLOCK):
-                writer.write_uint32(0) # Timestamp or similar
+                writer.write_uint32(self.sim.remaining_unlocks) # Timestamp or similar
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_SCHEDULE):
                 try:
                     schedule_json = json.dumps(self.sim.schedule) if self.sim.schedule else "{}"
