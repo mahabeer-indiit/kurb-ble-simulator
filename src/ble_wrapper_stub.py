@@ -260,74 +260,60 @@ class WindowsBLEPairingAdvertiser:
 
     def _on_write_generic(self, sender, args):
         deferral = args.get_deferral()
-        if self._loop and self._loop.is_running():
-            asyncio.run_coroutine_threadsafe(
-                self._handle_write_generic(sender, args, deferral),
-                self._loop
-            )
-        else:
-            try:
-                self._handle_write_generic(sender, args, deferral)
-            except Exception as e:
-                log.error(f"_on_write_generic fallback error: {e}")
+        asyncio.run_coroutine_threadsafe(
+            self._handle_write_generic(sender, args, deferral),
+            self._loop
+        )
 
     async def _handle_write_generic(self, sender, args, deferral):
         try:
-            request = await args.get_request_async()
-            reader = DataReader.from_buffer(request.value)
+            req = await args.get_request_async()
+            reader = DataReader.from_buffer(req.value)
             data = bytes(reader.read_bytes(reader.unconsumed_buffer_length))
-            
-            log.info(f"Write Request on {sender.uuid}. Data: {data.hex()}")
-            
-            # Logic for Lock Command
-            if sender.uuid == uuid.UUID(ble_constants.CHAR_LOCK_COMMAND):
-                if len(data) > 0:
-                        log.info("COMMAND: UNLOCK")
-                        if(self.sim.fail_open):
-                            log.info("Fail open is enabled. Unlock command ignored.")
-                            pass
-                        prev_state = self.sim.lock_state
-                        self.sim.attempt_unlock()
-                        if self.sim.lock_state == 0 and prev_state != 0:
-                            # unlock successfull
-                            pass
-                        else:
-                            await self._notify(ble_constants.CHAR_EVENT, ble_constants.EV_GENERIC_ERROR)
 
-            # Schedule write: JSON to set schedule
-            elif sender.uuid == uuid.UUID(ble_constants.CHAR_SCHEDULE):
-                try:
-                    s = data.decode("utf-8")
-                    obj = json.loads(s)
-                    mode = obj.get("mode")
-                    if mode == "daily_limit":
-                        dl = obj.get("daily_limit", {})
-                        max_unlocks = int(dl.get("max_unlocks", 3))
-                        reset_time_local = dl.get("reset_time_local", "00:00")
-                        self.sim.set_daily_limit_schedule(max_unlocks=max_unlocks, reset_time_local=reset_time_local)
-                    elif mode == "time_window":
-                        windows = obj.get("windows", [])
-                        if windows:
-                            w = windows[0]
-                            self.sim.set_time_window_schedule(int(w.get("start", 0)), int(w.get("end", 0)))
-                    await self._notify_event(ble_constants.EV_SCHEDULE_UPDATED)
-                    log.info("SCHEDULE updated via BLE write")
-                except Exception as ex:
-                    log.error(f"SCHEDULE write parse error: {ex}")
+            u = sender.uuid
 
-            # TimeSync write: accept a uint32 (epoch), set internally (no method in sim)
-            elif sender.uuid == uuid.UUID(ble_constants.CHAR_TIMESYNC):
-                try:
-                    # No-op for core sim; could store if needed
-                    log.info("TIMESYNC received")
-                except Exception as ex:
-                    log.error(f"TIMESYNC write error: {ex}")
+            # -------- LOCK COMMAND --------
+            if u == uuid.UUID(ble_constants.CHAR_LOCK_COMMAND):
+                self.sim.attempt_unlock()
 
-            if request.option == GattWriteOption.WRITE_WITH_RESPONSE:
-                request.respond()
-                
+            # -------- SCHEDULE (length-prefixed JSON) --------
+            elif u == uuid.UUID(ble_constants.CHAR_SCHEDULE):
+                if len(data) < 2:
+                    raise ValueError("Invalid schedule payload")
+
+                json_len = data[0] | (data[1] << 8)
+                json_bytes = data[2:2 + json_len]
+                obj = json.loads(json_bytes.decode("utf-8"))
+
+                mode = obj.get("mode")
+                if mode == "daily_limit":
+                    dl = obj.get("daily_limit", {})
+                    self.sim.set_daily_limit_schedule(
+                        int(dl.get("max_unlocks", 3)),
+                        dl.get("reset_time_local", "00:00")
+                    )
+                elif mode == "time_window":
+                    w = obj.get("windows", [{}])[0]
+                    self.sim.set_time_window_schedule(
+                        int(w.get("start", 0)),
+                        int(w.get("end", 0))
+                    )
+
+                await self._notify(
+                    ble_constants.CHAR_EVENT,
+                    ble_constants.EV_SCHEDULE_UPDATED
+                )
+
+            if req.option == GattWriteOption.WRITE_WITH_RESPONSE:
+                req.respond()
+
         except Exception as e:
-            log.error(f"Error in write: {e}")
+            log.error(f"Write error: {e}")
+            await self._notify(
+                ble_constants.CHAR_EVENT,
+                ble_constants.EV_GENERIC_ERROR
+            )
         finally:
             deferral.complete()
 
