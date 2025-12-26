@@ -269,7 +269,19 @@ class WindowsBLEPairingAdvertiser:
         try:
             req = await args.get_request_async()
             reader = DataReader.from_buffer(req.value)
-            data = bytes(reader.read_bytes(reader.unconsumed_buffer_length))
+            buffer_length = reader.unconsumed_buffer_length
+            if buffer_length > 0:
+                # Read bytes from the buffer
+                buffer = reader.read_buffer(buffer_length)
+                # Convert IBuffer to bytes
+                # Try to_array first, fallback to list comprehension
+                try:
+                    data = bytes(buffer.to_array(0, buffer.length))
+                except AttributeError:
+                    # Fallback: convert IBuffer to bytes via indexing
+                    data = bytes([buffer[i] for i in range(buffer.length)])
+            else:
+                data = b''
 
             u = sender.uuid
 
