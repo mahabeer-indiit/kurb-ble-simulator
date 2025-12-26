@@ -271,15 +271,13 @@ class WindowsBLEPairingAdvertiser:
             reader = DataReader.from_buffer(req.value)
             buffer_length = reader.unconsumed_buffer_length
             if buffer_length > 0:
-                # Read bytes from the buffer
-                buffer = reader.read_buffer(buffer_length)
-                # Convert IBuffer to bytes
-                # Try to_array first, fallback to list comprehension
-                try:
-                    data = bytes(buffer.to_array(0, buffer.length))
-                except AttributeError:
-                    # Fallback: convert IBuffer to bytes via indexing
-                    data = bytes([buffer[i] for i in range(buffer.length)])
+                # Read bytes from DataReader
+                # Windows WinRT DataReader.read_bytes() may return IBuffer, not bytes
+                # So we read byte-by-byte which is guaranteed to work
+                data = bytearray(buffer_length)
+                for i in range(buffer_length):
+                    data[i] = reader.read_byte()
+                data = bytes(data)
             else:
                 data = b''
 
