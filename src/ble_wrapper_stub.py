@@ -193,14 +193,6 @@ class WindowsBLEPairingAdvertiser:
         self.chars[ble_constants.CHAR_DEVICE_ID].add_read_requested(self._on_read_generic)
         log.info(f"Created Device ID Char: {ble_constants.CHAR_DEVICE_ID}")
 
-        # 10. Protocol Version (Read)
-        self.chars[ble_constants.CHAR_PROTOCOL_VERSION] = await create_char(
-            ble_constants.CHAR_PROTOCOL_VERSION,
-            GattCharacteristicProperties.READ
-        )
-        self.chars[ble_constants.CHAR_PROTOCOL_VERSION].add_read_requested(self._on_read_generic)
-        log.info(f"Created Protocol Version Char: {ble_constants.CHAR_PROTOCOL_VERSION}")
-
 
         # 12. Protocol (Read) - Assuming this is different from Version? Or maybe Type?
         self.chars[ble_constants.CHAR_PROTOCOL] = await create_char(
@@ -266,8 +258,6 @@ class WindowsBLEPairingAdvertiser:
                 writer.write_byte(int(self.sim.battery))
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_DEVICE_ID):
                 writer.write_string("KURB-VK-2501-0001")
-            elif sender.uuid == uuid.UUID(ble_constants.CHAR_PROTOCOL_VERSION):
-                writer.write_byte(1)
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_FIRMWARE):
                 writer.write_string("FIRMWARE-1.0.0")
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_PROTOCOL):
@@ -547,7 +537,7 @@ class WindowsBLEPairingAdvertiser:
     def _console_loop(self):
         def show_menu():
             print("")
-            print("[menu] l=lock, u=unlock, b <0-100>=battery, e<1-9>=event, q=exit")
+            print("[menu] l=lock, u=unlock, b <0-100>=battery, e<1-9>=event, s=show schedule, r=show remaining unlocks, m=show mode, q=exit")
             print("> ", end="", flush=True)
         show_menu()
         while not self._stop_console:
@@ -607,6 +597,28 @@ class WindowsBLEPairingAdvertiser:
                 self.sim.set_battery(val)
                 log.info(f"MENU: battery={val}")
                 return
+        if tokens[0] == "s":
+            try:
+                log.info(f"MENU: schedule ${self.sim.schedule}")
+                schedule_json = json.dumps(self.sim.schedule) if self.sim.schedule else "{}"
+                log.info(f"MENU: schedule={schedule_json}")
+            except Exception:
+                log.info("MENU: schedule={}")
+            return
+        if tokens[0] == "r":
+            try:
+                ru = self.sim.remaining_unlocks
+                log.info(f"MENU: remaining_unlocks={ru}")
+            except Exception:
+                log.info("MENU: remaining_unlocks=unknown")
+            return
+        if tokens[0] == "m":
+            try:
+                mode = self.sim.schedule.get("mode") if self.sim.schedule else "none"
+                log.info(f"MENU: mode={mode}")
+            except Exception:
+                log.info("MENU: mode=unknown")
+            return
         if cmd.startswith("e"):
             try:
                 num = int(cmd[1:])
