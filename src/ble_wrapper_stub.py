@@ -115,11 +115,12 @@ class WindowsBLEPairingAdvertiser:
         self._loop = asyncio.get_running_loop()
 
         # Helper to create characteristic
-        async def create_char(uuid_str, properties, protection=GattProtectionLevel.PLAIN):
+        async def create_char(uuid_str, properties,user_description=None, protection=GattProtectionLevel.PLAIN):
             params = GattLocalCharacteristicParameters()
             params.characteristic_properties = properties
             params.read_protection_level = protection
             params.write_protection_level = protection
+            params.user_description=user_description
             
             char_result = await self.provider.service.create_characteristic_async(
                 uuid.UUID(uuid_str),
@@ -130,7 +131,8 @@ class WindowsBLEPairingAdvertiser:
         # 2. Event Characteristic (Notify)
         self.chars[ble_constants.CHAR_EVENT] = await create_char(
             ble_constants.CHAR_EVENT,
-            GattCharacteristicProperties.NOTIFY
+            GattCharacteristicProperties.NOTIFY,
+            "Event Characteristic for different eventd from Kurb"
         )
         self.chars[ble_constants.CHAR_EVENT].add_subscribed_clients_changed(self._on_subscribed_clients_changed)
         log.info(f"Created Event Char: {ble_constants.CHAR_EVENT}")
@@ -138,7 +140,8 @@ class WindowsBLEPairingAdvertiser:
         # 3. Lock State (Read | Notify)
         self.chars[ble_constants.CHAR_LOCK_STATE] = await create_char(
             ble_constants.CHAR_LOCK_STATE,
-            GattCharacteristicProperties.READ | GattCharacteristicProperties.NOTIFY
+            GattCharacteristicProperties.READ | GattCharacteristicProperties.NOTIFY,
+            "Lock State Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_LOCK_STATE].add_read_requested(self._on_read_generic)
         log.info(f"Created Lock State Char: {ble_constants.CHAR_LOCK_STATE}")
@@ -146,7 +149,8 @@ class WindowsBLEPairingAdvertiser:
         # 4. Lock Command (Write)
         self.chars[ble_constants.CHAR_LOCK_COMMAND] = await create_char(
             ble_constants.CHAR_LOCK_COMMAND,
-            GattCharacteristicProperties.WRITE
+            GattCharacteristicProperties.WRITE,
+            "Lock Command Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_LOCK_COMMAND].add_write_requested(self._on_write_generic)
         log.info(f"Created Lock Command Char: {ble_constants.CHAR_LOCK_COMMAND}")
@@ -154,7 +158,8 @@ class WindowsBLEPairingAdvertiser:
         # 5. Battery (Read | Notify)
         self.chars[ble_constants.CHAR_BATTERY] = await create_char(
             ble_constants.CHAR_BATTERY,
-            GattCharacteristicProperties.READ | GattCharacteristicProperties.NOTIFY
+            GattCharacteristicProperties.READ | GattCharacteristicProperties.NOTIFY,
+            "Battery Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_BATTERY].add_read_requested(self._on_read_generic)
         log.info(f"Created Battery Char: {ble_constants.CHAR_BATTERY}")
@@ -162,7 +167,8 @@ class WindowsBLEPairingAdvertiser:
         # 6. Schedule (Read | Write)
         self.chars[ble_constants.CHAR_SCHEDULE] = await create_char(
             ble_constants.CHAR_SCHEDULE,
-            GattCharacteristicProperties.READ | GattCharacteristicProperties.WRITE
+            GattCharacteristicProperties.READ | GattCharacteristicProperties.WRITE,
+            "Schedule Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_SCHEDULE].add_read_requested(self._on_read_generic)
         self.chars[ble_constants.CHAR_SCHEDULE].add_write_requested(self._on_write_generic)
@@ -171,7 +177,8 @@ class WindowsBLEPairingAdvertiser:
         # 7. TimeSync (Read | Write)
         self.chars[ble_constants.CHAR_TIMESYNC] = await create_char(
             ble_constants.CHAR_TIMESYNC,
-            GattCharacteristicProperties.READ | GattCharacteristicProperties.WRITE
+            GattCharacteristicProperties.READ | GattCharacteristicProperties.WRITE,
+            "TimeSync Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_TIMESYNC].add_read_requested(self._on_read_generic)
         self.chars[ble_constants.CHAR_TIMESYNC].add_write_requested(self._on_write_generic)
@@ -180,7 +187,8 @@ class WindowsBLEPairingAdvertiser:
         # 8. Next Unlock (Read)
         self.chars[ble_constants.CHAR_NEXT_UNLOCK] = await create_char(
             ble_constants.CHAR_NEXT_UNLOCK,
-             GattCharacteristicProperties.READ | GattCharacteristicProperties.NOTIFY
+            GattCharacteristicProperties.READ | GattCharacteristicProperties.NOTIFY,
+            "Next Unlock Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_NEXT_UNLOCK].add_read_requested(self._on_read_generic)
         log.info(f"Created Next Unlock Char: {ble_constants.CHAR_NEXT_UNLOCK}")
@@ -188,7 +196,8 @@ class WindowsBLEPairingAdvertiser:
         # 9. Device ID (Read)
         self.chars[ble_constants.CHAR_DEVICE_ID] = await create_char(
             ble_constants.CHAR_DEVICE_ID,
-            GattCharacteristicProperties.READ
+            GattCharacteristicProperties.READ,
+            "Device ID Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_DEVICE_ID].add_read_requested(self._on_read_generic)
         log.info(f"Created Device ID Char: {ble_constants.CHAR_DEVICE_ID}")
@@ -197,7 +206,8 @@ class WindowsBLEPairingAdvertiser:
         # 12. Protocol (Read) - Assuming this is different from Version? Or maybe Type?
         self.chars[ble_constants.CHAR_PROTOCOL] = await create_char(
             ble_constants.CHAR_PROTOCOL,
-            GattCharacteristicProperties.READ
+            GattCharacteristicProperties.READ,
+            "Device Protocol Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_PROTOCOL].add_read_requested(self._on_read_generic)
         log.info(f"Created Protocol Char: {ble_constants.CHAR_PROTOCOL}")
@@ -205,7 +215,8 @@ class WindowsBLEPairingAdvertiser:
         # 13. Firmware Version (Read)
         self.chars[ble_constants.CHAR_FIRMWARE] = await create_char(
             ble_constants.CHAR_FIRMWARE,
-            GattCharacteristicProperties.READ
+            GattCharacteristicProperties.READ,
+            "Device Firmware Version Characteristic for Kurb"
         )
         self.chars[ble_constants.CHAR_FIRMWARE].add_read_requested(self._on_read_generic)
         log.info(f"Created Firmware Char: {ble_constants.CHAR_FIRMWARE}")
@@ -349,18 +360,24 @@ class WindowsBLEPairingAdvertiser:
         """Handle lock command write."""
         log.info("[WRAPPER] Processing Unlock Command")
 
-        if(self.sim.remaining_unlocks<=0):
-            await self._notify(
-                ble_constants.CHAR_EVENT,
-                ble_constants.EV_GENERIC_ERROR
+        if self.sim.remaining_unlocks <= 0:
+            await self._notify_generic_error(
+                ble_constants.ERR_NO_REMAINING_USES
             )
-        elif self.sim.lock_state==0:
-            await self._notify(
-                ble_constants.CHAR_EVENT,
-                ble_constants.EV_GENERIC_ERROR
+            return
+
+        if self.sim.lock_state == 0:
+            await self._notify_generic_error(
+                ble_constants.ERR_ALREADY_UNLOCKED
             )
-        else :    
+            return
+
+        try:
             self.sim.attempt_unlock()
+        except Exception:
+            await self._notify_generic_error(
+                ble_constants.ERR_HARDWARE_FAILURE
+            )
 
     async def _handle_schedule_stream(self, chunk: bytes):
         """
@@ -574,6 +591,23 @@ class WindowsBLEPairingAdvertiser:
             await self.chars[uuid_str].notify_value_async(writer.detach_buffer())
         except Exception as e:
             log.warning(f"Notify failed for {uuid_str}: {e}")
+
+    async def _notify_generic_error(self, error_code: int):
+        """
+        Sends GenericError event with 1-byte error_code.
+        Payload: [0x08, error_code]
+        """
+        if not self.is_connected():
+            return
+
+        writer = DataWriter()
+        writer.write_byte(ble_constants.EV_GENERIC_ERROR)  # 0x08
+        writer.write_byte(error_code)                      # 1-byte reason
+
+        await self.chars[ble_constants.CHAR_EVENT].notify_value_async(
+            writer.detach_buffer()
+        )
+
 
     async def _handle_menu_command(self, cmd):
         tokens = cmd.split()
