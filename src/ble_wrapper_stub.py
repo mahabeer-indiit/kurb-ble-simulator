@@ -275,13 +275,24 @@ class WindowsBLEPairingAdvertiser:
                 writer.write_string("PROTO-1.0.0")
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_NEXT_UNLOCK):
                 next_unlock_ts = self._calculate_next_unlock_time()
+                log.info(f"Next Unlock Time: {next_unlock_ts}")
                 writer.write_uint32(next_unlock_ts)
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_SCHEDULE):
+                request = await args.get_request_async()
+
                 try:
-                    schedule_json = json.dumps(self.sim.schedule) if self.sim.schedule else "{}"
-                    writer.write_string(schedule_json)
+                    if self.sim.schedule is None:
+                        # Send EMPTY buffer (length = 0)
+                        writer = DataWriter()
+                        request.respond_with_value(writer.detach_buffer())
+                        return
+
+                    writer = DataWriter()
+                    writer.write_string(json.dumps(self.sim.schedule))
+                    request.respond_with_value(writer.detach_buffer())
                 except Exception:
-                    writer.write_string("{}")
+                    writer = DataWriter()
+                    request.respond_with_value(writer.detach_buffer())
             elif sender.uuid == uuid.UUID(ble_constants.CHAR_TIMESYNC):
                 writer.write_uint32(0)
             else:
@@ -359,18 +370,22 @@ class WindowsBLEPairingAdvertiser:
     async def _handle_unlock_command(self, data: bytes):
         """Handle lock command write."""
         log.info("[WRAPPER] Processing Unlock Command")
+        print(self.sim.remaining_unlocks)
+
+        if self.sim.lock_state == 0:
+            log.warning("[WRAPPER] Already unlocked")
+            await self._notify_generic_error(
+                ble_constants.ERR_ALREADY_UNLOCKED
+            )
+            return
 
         if self.sim.remaining_unlocks <= 0:
+            log.warning("[WRAPPER] No remaining unlocks")
             await self._notify_generic_error(
                 ble_constants.ERR_NO_REMAINING_USES
             )
             return
 
-        if self.sim.lock_state == 0:
-            await self._notify_generic_error(
-                ble_constants.ERR_ALREADY_UNLOCKED
-            )
-            return
 
         try:
             self.sim.attempt_unlock()
@@ -457,8 +472,7 @@ class WindowsBLEPairingAdvertiser:
                 if windows:
                     w = windows[0]
                     self.sim.set_time_window_schedule(
-                        w.get("start", 0),
-                        w.get("end", 0),
+                        windows,
                     )
 
             else:
@@ -591,22 +605,49 @@ class WindowsBLEPairingAdvertiser:
             await self.chars[uuid_str].notify_value_async(writer.detach_buffer())
         except Exception as e:
             log.warning(f"Notify failed for {uuid_str}: {e}")
-
-    async def _notify_generic_error(self, error_code: int):
+    
+    def _byte_to_int(self, v) -> int:
         """
-        Sends GenericError event with 1-byte error_code.
+        Accepts int | bytes | bytearray and returns an int (0–255)
+        """
+        if isinstance(v, int):
+            return v & 0xFF
+        if isinstance(v, (bytes, bytearray)):
+            if len(v) != 1:
+                raise ValueError(f"Expected single byte, got {v}")
+            return v[0]
+        raise TypeError(f"Unsupported byte value type: {type(v)}")
+
+
+    async def _notify_generic_error(self, error_code):
+        """
+        Sends GenericError event
         Payload: [0x08, error_code]
         """
         if not self.is_connected():
+            log.warning("No connected clients. Skipping generic error.")
             return
 
-        writer = DataWriter()
-        writer.write_byte(ble_constants.EV_GENERIC_ERROR)  # 0x08
-        writer.write_byte(error_code)                      # 1-byte reason
+        try:
+            writer = DataWriter()
 
-        await self.chars[ble_constants.CHAR_EVENT].notify_value_async(
-            writer.detach_buffer()
-        )
+            event_code = self._byte_to_int(ble_constants.EV_GENERIC_ERROR)
+            reason_code = self._byte_to_int(error_code)
+
+            writer.write_byte(event_code)
+            writer.write_byte(reason_code)
+
+            await self.chars[ble_constants.CHAR_EVENT].notify_value_async(
+                writer.detach_buffer()
+            )
+
+            log.warning(
+                f"[BLE Notify] GenericError sent "
+                f"(0x{event_code:02X}, 0x{reason_code:02X})"
+            )
+
+        except Exception as e:
+            log.error(f"Notify generic error failed: {e}")
 
 
     async def _handle_menu_command(self, cmd):

@@ -46,13 +46,11 @@ class KurbSimulator:
         self.remaining_unlocks = max_unlocks
         print(f"[SCHEDULE] Set daily_limit with {max_unlocks} unlocks per day.\n")
 
-    def set_time_window_schedule(self, start_ts, end_ts):
+    def set_time_window_schedule(self, windows):
         self.schedule = {
             "mode": "time_window",
             "tz_offset_minutes": 0,
-            "windows": [
-                {"start": start_ts, "end": end_ts}
-            ]
+            "windows": windows
         }
         self.used_window_today = False
         print(f"[SCHEDULE] Set time_window from {start_ts} to {end_ts}.\n")
